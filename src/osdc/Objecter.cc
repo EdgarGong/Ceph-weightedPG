@@ -14,8 +14,11 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <string>
+#include <vector>
 
 #include "Objecter.h"
+#include "common/dout.h"
 #include "osd/OSDMap.h"
 #include "osd/error_code.h"
 #include "Filer.h"
@@ -250,6 +253,7 @@ void Objecter::update_crush_location()
  */
 void Objecter::init()
 {
+  ldout(cct,0) << __func__ << " init" << dendl;
   ceph_assert(!initialized);
 
   if (!logger) {
@@ -408,6 +412,10 @@ void Objecter::start(const OSDMap* o)
   if (o) {
     osdmap->deepish_copy_from(*o);
     prune_pg_mapping(osdmap->get_pools());
+    // auto pools = osdmap->get_pools();
+    // for (auto& p : pools) {
+    //   ldout(cct,0) << __func__ << " pool:" << p.second << dendl;
+    // }
   } else if (osdmap->get_epoch() == 0) {
     _maybe_request_map();
   }
@@ -1156,6 +1164,7 @@ void Objecter::_scan_requests(
 
 void Objecter::handle_osd_map(MOSDMap *m)
 {
+  ldout(cct, 0) << "enter handle osd map " << dendl;
   ceph::shunique_lock sul(rwlock, acquire_unique);
   if (!initialized)
     return;
@@ -1187,107 +1196,110 @@ void Objecter::handle_osd_map(MOSDMap *m)
 		  << m->get_first() << "," << m->get_last()
 		  << "] <= " << osdmap->get_epoch() << dendl;
   } else {
-    ldout(cct, 3) << "handle_osd_map got epochs ["
-		  << m->get_first() << "," << m->get_last()
-		  << "] > " << osdmap->get_epoch() << dendl;
+      ldout(cct, 0) << "handle_osd_map got epochs ["
+        << m->get_first() << "," << m->get_last()
+        << "] > " << osdmap->get_epoch() << dendl;
 
-    if (osdmap->get_epoch()) {
-      bool skipped_map = false;
-      // we want incrementals
-      for (epoch_t e = osdmap->get_epoch() + 1;
-	   e <= m->get_last();
-	   e++) {
+      if (osdmap->get_epoch()) {
+        bool skipped_map = false;
+        // we want incrementals
+        for (epoch_t e = osdmap->get_epoch() + 1;
+      e <= m->get_last();
+      e++) {
 
-	if (osdmap->get_epoch() == e-1 &&
-	    m->incremental_maps.count(e)) {
-	  ldout(cct, 3) << "handle_osd_map decoding incremental epoch " << e
-			<< dendl;
-	  OSDMap::Incremental inc(m->incremental_maps[e]);
-	  osdmap->apply_incremental(inc);
+    if (osdmap->get_epoch() == e-1 &&
+        m->incremental_maps.count(e)) {
+      ldout(cct, 3) << "handle_osd_map decoding incremental epoch " << e
+        << dendl;
+      OSDMap::Incremental inc(m->incremental_maps[e]);
+      osdmap->apply_incremental(inc);
 
-          emit_blocklist_events(inc);
+            emit_blocklist_events(inc);
 
-	  logger->inc(l_osdc_map_inc);
-	}
-	else if (m->maps.count(e)) {
-	  ldout(cct, 3) << "handle_osd_map decoding full epoch " << e << dendl;
-          auto new_osdmap = std::make_unique<OSDMap>();
-          new_osdmap->decode(m->maps[e]);
+      logger->inc(l_osdc_map_inc);
+    }
+    else if (m->maps.count(e)) {
+      ldout(cct, 3) << "handle_osd_map decoding full epoch " << e << dendl;
+            auto new_osdmap = std::make_unique<OSDMap>();
+            new_osdmap->decode(m->maps[e]);
 
-          emit_blocklist_events(*osdmap, *new_osdmap);
-          osdmap = std::move(new_osdmap);
+            emit_blocklist_events(*osdmap, *new_osdmap);
+            osdmap = std::move(new_osdmap);
 
-	  logger->inc(l_osdc_map_full);
-	}
-	else {
-	  if (e >= m->get_oldest()) {
-	    ldout(cct, 3) << "handle_osd_map requesting missing epoch "
-			  << osdmap->get_epoch()+1 << dendl;
-	    _maybe_request_map();
-	    break;
-	  }
-	  ldout(cct, 3) << "handle_osd_map missing epoch "
-			<< osdmap->get_epoch()+1
-			<< ", jumping to " << m->get_oldest() << dendl;
-	  e = m->get_oldest() - 1;
-	  skipped_map = true;
-	  continue;
-	}
-	logger->set(l_osdc_map_epoch, osdmap->get_epoch());
-
-        prune_pg_mapping(osdmap->get_pools());
-	cluster_full = cluster_full || _osdmap_full_flag();
-	update_pool_full_map(pool_full_map);
-
-	// check all outstanding requests on every epoch
-	for (auto& i : need_resend) {
-	  _prune_snapc(osdmap->get_new_removed_snaps(), i.second);
-	}
-	_scan_requests(homeless_session, skipped_map, cluster_full,
-		       &pool_full_map, need_resend,
-		       need_resend_linger, need_resend_command, sul);
-	for (auto p = osd_sessions.begin();
-	     p != osd_sessions.end(); ) {
-	  auto s = p->second;
-	  _scan_requests(s, skipped_map, cluster_full,
-			 &pool_full_map, need_resend,
-			 need_resend_linger, need_resend_command, sul);
-	  ++p;
-	  // osd down or addr change?
-	  if (!osdmap->is_up(s->osd) ||
-	      (s->con &&
-	       s->con->get_peer_addrs() != osdmap->get_addrs(s->osd))) {
-	    close_session(s);
-	  }
-	}
-
-	ceph_assert(e == osdmap->get_epoch());
+      logger->inc(l_osdc_map_full);
+    }
+    else {
+      if (e >= m->get_oldest()) {
+        ldout(cct, 3) << "handle_osd_map requesting missing epoch "
+          << osdmap->get_epoch()+1 << dendl;
+        _maybe_request_map();
+        break;
       }
+      ldout(cct, 3) << "handle_osd_map missing epoch "
+        << osdmap->get_epoch()+1
+        << ", jumping to " << m->get_oldest() << dendl;
+      e = m->get_oldest() - 1;
+      skipped_map = true;
+      continue;
+    }
+    logger->set(l_osdc_map_epoch, osdmap->get_epoch());
 
-    } else {
-      // first map.  we want the full thing.
-      if (m->maps.count(m->get_last())) {
-	for (auto p = osd_sessions.begin();
-	     p != osd_sessions.end(); ++p) {
-	  OSDSession *s = p->second;
-	  _scan_requests(s, false, false, NULL, need_resend,
-			 need_resend_linger, need_resend_command, sul);
-	}
-	ldout(cct, 3) << "handle_osd_map decoding full epoch "
-		      << m->get_last() << dendl;
-	osdmap->decode(m->maps[m->get_last()]);
-        prune_pg_mapping(osdmap->get_pools());
+          prune_pg_mapping(osdmap->get_pools());
+    cluster_full = cluster_full || _osdmap_full_flag();
+    update_pool_full_map(pool_full_map);
 
-	_scan_requests(homeless_session, false, false, NULL,
-		       need_resend, need_resend_linger,
-		       need_resend_command, sul);
-      } else {
-	ldout(cct, 3) << "handle_osd_map hmm, i want a full map, requesting"
-		      << dendl;
-	monc->sub_want("osdmap", 0, CEPH_SUBSCRIBE_ONETIME);
-	monc->renew_subs();
+    // check all outstanding requests on every epoch
+    for (auto& i : need_resend) {
+      _prune_snapc(osdmap->get_new_removed_snaps(), i.second);
+    }
+    _scan_requests(homeless_session, skipped_map, cluster_full,
+            &pool_full_map, need_resend,
+            need_resend_linger, need_resend_command, sul);
+    for (auto p = osd_sessions.begin();
+        p != osd_sessions.end(); ) {
+      auto s = p->second;
+      _scan_requests(s, skipped_map, cluster_full,
+        &pool_full_map, need_resend,
+        need_resend_linger, need_resend_command, sul);
+      ++p;
+      // osd down or addr change?
+      if (!osdmap->is_up(s->osd) ||
+          (s->con &&
+          s->con->get_peer_addrs() != osdmap->get_addrs(s->osd))) {
+        close_session(s);
       }
     }
+
+    ceph_assert(e == osdmap->get_epoch());
+        }
+
+      } else {
+        // first map.  we want the full thing.
+        if (m->maps.count(m->get_last())) {
+          for (auto p = osd_sessions.begin();
+              p != osd_sessions.end(); ++p) {
+            OSDSession *s = p->second;
+            _scan_requests(s, false, false, NULL, need_resend,
+              need_resend_linger, need_resend_command, sul);
+          }
+          ldout(cct, 0) << "handle_osd_map decoding full epoch "
+            << m->get_last() << dendl;
+          // std::cout << "handle_osd_map decoding full epoch" << std::endl;
+          osdmap->decode(m->maps[m->get_last()]);
+          ldout(cct, 0) << "after handle_osd_map decoding full epoch "
+            << m->get_last() << dendl;
+          prune_pg_mapping(osdmap->get_pools());
+
+          _scan_requests(homeless_session, false, false, NULL,
+            need_resend, need_resend_linger,
+            need_resend_command, sul);
+        } else {
+          ldout(cct, 3) << "handle_osd_map hmm, i want a full map, requesting"
+            << dendl;
+          monc->sub_want("osdmap", 0, CEPH_SUBSCRIBE_ONETIME);
+          monc->renew_subs();
+        }
+      }
   }
 
   // make sure need_resend targets reflect latest map
@@ -2768,8 +2780,47 @@ void Objecter::_prune_snapc(
   }
 }
 
+// select k nums from [0, n-1]
+std::vector<unsigned> select_k_pgs(int n, int k, unsigned seed) {
+  std::vector<unsigned> numbers(n);
+  // 填充向量
+  for (unsigned i = 0; i < n; ++i) {
+    numbers[i] = i;
+  }
+
+  // 使用当前时间作为随机数生成器的种子
+  // unsigned seed =
+  // std::chrono::system_clock::now().time_since_epoch().count();
+  std::shuffle(numbers.begin(), numbers.end(),
+               std::default_random_engine(seed));
+
+  // 只保留前k个元素
+  numbers.resize(k);
+
+  return numbers;
+}
+
+double hash_to_unit_interval(const std::string& id) {
+  std::hash<std::string> hasher;
+  auto hash = hasher(id);
+  auto d1 = (static_cast<double>(hash) + 1.0);
+  auto d2 = (static_cast<double>(UINT64_MAX) + 1.0);
+  // std::cout << "hash: " << hash << " d1: " << d1 << " d2: " << d2 << std::endl;
+  // std::cout << "hash: " << hash << " d1: " << d1 << " d2: " << d2 << " d1/d2: " << d1 / d2 << std::endl;
+  return d1 / d2;
+}
+
+double compute_weighted_score(unsigned pgid, std::string key, double weight) {
+  auto score = hash_to_unit_interval(std::to_string(pgid) + ":" + key);
+  double log_score = 1.0 / -std::log(score);
+  // std::cout <<  "id:" << id_ << " score:" << score << " log_score: " << log_score << std::endl;
+  return weight * log_score;
+}
+
+// 对象寻址
 int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
 {
+  ldout(cct, 0) << __func__ << " _calc_target"<< dendl;
   // rwlock is locked
   bool is_read = t->flags & CEPH_OSD_FLAG_READ;
   bool is_write = t->flags & CEPH_OSD_FLAG_WRITE;
@@ -2819,6 +2870,11 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
       return RECALC_OP_TARGET_POOL_DNE;
     }
   }
+  
+  // std::hash<std::string> hasher;
+  // size_t hash = hasher(t->target_oid.name);
+  // std::vector<int> pgs = select_k_pgs(pi->get_pg_num(), 3, hash);
+  // ldout(cct,0) << __func__ << " k pgs:" << pgs << dendl;
 
   pg_t pgid;
   if (t->precalc_pgid) {
@@ -2827,6 +2883,7 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
     ceph_assert(t->base_oloc.pool == (int64_t)t->base_pgid.pool());
     pgid = t->base_pgid;
   } else {
+    // 获取目标对象所在的PG(pgid)
     int ret = osdmap->object_locator_to_pg(t->target_oid, t->target_oloc,
 					   pgid);
     if (ret == -ENOENT) {
@@ -2834,23 +2891,97 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
       return RECALC_OP_TARGET_POOL_DNE;
     }
   }
-  ldout(cct,20) << __func__ << " target " << t->target_oid << " "
-		<< t->target_oloc << " -> pgid " << pgid << dendl;
-  ldout(cct,30) << __func__ << "  target pi " << pi
-		<< " pg_num " << pi->get_pg_num() << dendl;
-  t->pool_ever_existed = true;
 
   int size = pi->size;
   int min_size = pi->min_size;
   unsigned pg_num = pi->get_pg_num();
   unsigned pg_num_mask = pi->get_pg_num_mask();
   unsigned pg_num_pending = pi->get_pg_num_pending();
+
+  // Modified by Edgar
+  // execute the Rendevous hashing
+  pg_t rendezvous_pgid;
+
+  auto poolid = t->target_oloc.get_pool();
+  auto pool_name = osdmap->get_pool_name(poolid);
+  auto object_name = t->target_oid.name;
+  auto object_key = t->target_oloc.key;
+  ldout(cct, 0) << __func__ << " object name:" << object_name << 
+  " object key:" << object_key << dendl;
+
+  unsigned hash_func_num = 3;
+  std::hash<std::string> hasher;
+  auto hash = hasher(object_name);
+
+  ldout(cct,0) << __func__ << "  pool id: " << poolid
+   << " pool name:" << pool_name << dendl;
+  if(osdmap->has_pool_rendezvous_weight(poolid)){
+    ldout(cct,0) << __func__ << " has rendezvous_weight for pool "
+    << poolid << dendl;
+    ldout(cct,0) << __func__ << " start to rendezvous hash for object "
+    << object_name << dendl;
+    auto pgs = select_k_pgs(pg_num, hash_func_num, hash);
+    ldout(cct, 0) << __func__ << " select k pgs:" << pgs << dendl;
+    std::map<unsigned, double> weights;
+    osdmap->get_rendzvous_pgs_weight(poolid, pgs, weights);
+    double max_score = std::numeric_limits<double>::lowest();
+    int max_pg_id = -1;
+    for(const auto &pgid : pgs){
+      double score = compute_weighted_score(pgid, object_name, weights[pgid]);
+      if (score > max_score) {
+        max_score = score;
+        max_pg_id = pgid;
+      }
+    }
+    rendezvous_pgid = pg_t(max_pg_id, t->target_oloc.get_pool());
+    // ldout(cct,0) << __func__ <<  " conv hash pgid.ps(): " << pgid.ps() <<
+    // " rendezvous hash pgid:" << max_pg_id << dendl;
+
+  }else{
+    ldout(cct,0) << __func__ << ": ERROR: dosen't has rendezvous_weight for "
+    << poolid << dendl;
+  }
+
+
+  // pg_pool_t *tmp_pi = osdmap->get_nonconst_pg_pool(t->base_oloc.pool);
+  // if(!tmp_pi->has_pool_rendezvous_weight()) {
+  //   ldout(cct,0) << __func__ << ": init rendezvous_weight for "
+  //   << poolid << dendl;
+  //   tmp_pi->compute_pool_rendezvous_weight();
+  //   if(tmp_pi->has_pool_rendezvous_weight()){
+  //     ldout(cct,0) << __func__ << ": pool  "
+  //   << poolid << " init weight success" << dendl;
+  //   }else{
+  //     ldout(cct,0) << __func__ << ": pool  " << poolid << " init weight failed" << dendl;
+  //   }
+    
+  // }else{
+  //   ldout(cct,0) << __func__ << ": show rendezvous_weight for "
+  //   << poolid << dendl;
+  //   tmp_pi->show_pool_rendezvous_weight();
+  // }
+
+  // t->target_oid: object name
+  // t->target_oloc: object locator
+  ldout(cct,0) << __func__ << " target " << t->target_oid << " "
+		<< t->target_oloc << " -> pgid.ps(): " << pgid.ps() << dendl;
+  ldout(cct,30) << __func__ << "  target pi " << pi
+		<< " pg_num " << pi->get_pg_num() << dendl;
+  t->pool_ever_existed = true;
+
+  
   int up_primary, acting_primary;
   vector<int> up, acting;
+  // 求模
   ps_t actual_ps = ceph_stable_mod(pgid.ps(), pg_num, pg_num_mask);
+  ps_t rendezvous_ps = ceph_stable_mod(rendezvous_pgid.ps(), pg_num, pg_num_mask);
+  ldout(cct, 0) << __func__ << " conv hash actual ps:" << actual_ps
+  << " rendzvous hash ps:" << rendezvous_ps << dendl;
+  // 根据所在pool获得actual_pgid
   pg_t actual_pgid(actual_ps, pgid.pool());
   if (!lookup_pg_mapping(actual_pgid, osdmap->get_epoch(), &up, &up_primary,
                          &acting, &acting_primary)) {
+    // 通过CRUSH算法，获取该PG对应的OSD列表(up, 其中up_primary为primary OSD)
     osdmap->pg_to_up_acting_osds(actual_pgid, &up, &up_primary,
                                  &acting, &acting_primary);
     pg_mapping_t pg_mapping(osdmap->get_epoch(),
@@ -2945,8 +3076,9 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
     t->peering_crush_bucket_target = pi->peering_crush_bucket_target;
     t->peering_crush_bucket_barrier = pi->peering_crush_bucket_barrier;
     t->peering_crush_mandatory_member = pi->peering_crush_mandatory_member;
-    ldout(cct, 10) << __func__ << " "
+    ldout(cct, 0) << __func__ << " "
 		   << " raw pgid " << pgid << " -> actual " << t->actual_pgid
+       << " up " << t->up
 		   << " acting " << t->acting
 		   << " primary " << acting_primary << dendl;
     t->used_replica = false;
@@ -2960,7 +3092,7 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
 	if (p)
 	  t->used_replica = true;
 	osd = t->acting[p];
-	ldout(cct, 10) << " chose random osd." << osd << " of " << t->acting
+	ldout(cct, 0) << " chose random osd." << osd << " of " << t->acting
 		       << dendl;
       } else {
 	// look for a local replica.  prefer the primary if the

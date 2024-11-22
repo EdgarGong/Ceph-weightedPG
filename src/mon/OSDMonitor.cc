@@ -645,7 +645,7 @@ CrushWrapper OSDMonitor::_get_pending_crush()
 
 void OSDMonitor::create_initial()
 {
-  dout(10) << "create_initial for " << mon.monmap->fsid << dendl;
+  dout(0) << "create_initial for " << mon.monmap->fsid << dendl;
 
   OSDMap newmap;
 
@@ -4625,7 +4625,7 @@ void OSDMonitor::reencode_full_map(bufferlist& bl, uint64_t features)
   m.decode(q);
   // always encode with subset of osdmap's canonical features
   uint64_t f = features & m.get_encoding_features();
-  dout(20) << __func__ << " " << m.get_epoch() << " with features " << f
+  dout(0) << __func__ << " " << m.get_epoch() << " with features " << f
 	   << dendl;
   bl.clear();
   m.encode(bl, f | CEPH_FEATURE_RESERVED);
@@ -8022,6 +8022,7 @@ int OSDMonitor::prepare_new_pool(string& name,
       g_conf().get_val<string>("osd_pool_default_pg_autoscale_mode") :
       pg_autoscale_mode);
   }
+
   if (pgp_num == 0)
     pgp_num = g_conf().get_val<uint64_t>("osd_pool_default_pgp_num");
   if (!pgp_num)
@@ -8228,6 +8229,19 @@ int OSDMonitor::prepare_new_pool(string& name,
   pi->cache_min_evict_age = g_conf()->osd_pool_default_cache_min_evict_age;
 
   pending_inc.new_pool_names[pool] = name;
+
+  // Modified by Edgar
+  int64_t pool_id = osdmap.get_pools().size() + 1;
+  // dout(0) << __func__ << "TODO:compute rendezvous weight for pool:" << pool_id << dendl;
+  // osdmap.compute_pool_rendezvous_weight(pool_id);
+  // 只针对用户创建的pool，跳过系统自带的pool
+  if(pool_id >= 4 && !osdmap.has_pool_rendezvous_weight(pool_id)) {
+    dout(0) << __func__ << "compute rendezvous weight for pool:" << pool_id
+      << " pg num:" << pg_num << " size:" << size << dendl;
+    osdmap.compute_pool_rendezvous_weight(pool_id, pg_num, size);
+  }
+
+
   return 0;
 }
 
@@ -13136,7 +13150,28 @@ bool OSDMonitor::prepare_command_impl(MonOpRequestRef op,
 	break;
       }
     } else {
-      ss << "pool '" << poolstr << "' created";
+      // TODO: init rendezvous weight map
+      // osdmap.compute_pool_rendezvous_weight(poolstr);
+
+      // 此时这样查找到的pool id还为负数，还未编号、加入到name_pool里
+      // 可能是为了同步，后面才在后端加入到name pool里
+      // pool_id = osdmap.lookup_pg_pool_name(poolstr);
+      // 但是我们实验不需要多客户端同步，所以就直接根据pools.size确定新的pool id就好了
+      // auto pools = osdmap.get_pools();
+      // int64_t pool_id = osdmap.get_pools().size() + 1;
+      // // dout(0) << __func__ << "TODO:compute rendezvous weight for pool:" << pool_id << dendl;
+      // // osdmap.compute_pool_rendezvous_weight(pool_id);
+      // // 只针对用户创建的pool，跳过系统自带的pool
+      // if(pool_id >= 4 && !osdmap.has_pool_rendezvous_weight(pool_id)) {
+      //   dout(0) << __func__ << "compute rendezvous weight for pool:" << pool_id
+      //    << " pg num:" << pg_num << dendl;
+      //   osdmap.compute_pool_rendezvous_weight(pool_id, pg_num);
+      // }
+      // else{
+      //   osdmap.show_pool_rendezvous_weight(pool_id);
+      // }
+      // ss << "pool id" << pool_id << endl;
+      ss << "pool id:" << pool_id << " pool '" << poolstr << "' created compile test";
     }
     getline(ss, rs);
     wait_for_finished_proposal(op, new Monitor::C_Command(mon, op, 0, rs,

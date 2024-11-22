@@ -19,6 +19,7 @@
 #include "msg/Message.h"
 #include "osd/OSDMap.h"
 #include "include/ceph_features.h"
+#include <iostream>
 
 class MOSDMap final : public Message {
 private:
@@ -88,6 +89,7 @@ public:
   }
   void encode_payload(uint64_t features) override {
     using ceph::encode;
+    // std::cout << "encode payload" << std::endl;
     header.version = HEAD_VERSION;
     header.compat_version = COMPAT_VERSION;
     encode(fsid, payload);
@@ -108,36 +110,36 @@ public:
       // the stack, or maybe replaced with something that only
       // includes the pools the client cares about.
       for (auto p = incremental_maps.begin(); p != incremental_maps.end(); ++p) {
-	OSDMap::Incremental inc;
-	auto q = p->second.cbegin();
-	inc.decode(q);
-	// always encode with subset of osdmaps canonical features
-	uint64_t f = inc.encode_features & features;
-	p->second.clear();
-	if (inc.fullmap.length()) {
-	  // embedded full std::map?
-	  OSDMap m;
-	  m.decode(inc.fullmap);
-	  inc.fullmap.clear();
-	  m.encode(inc.fullmap, f | CEPH_FEATURE_RESERVED);
-	}
-	if (inc.crush.length()) {
-	  // embedded crush std::map
-	  CrushWrapper c;
-	  auto p = inc.crush.cbegin();
-	  c.decode(p);
-	  inc.crush.clear();
-	  c.encode(inc.crush, f);
-	}
-	inc.encode(p->second, f | CEPH_FEATURE_RESERVED);
+        OSDMap::Incremental inc;
+        auto q = p->second.cbegin();
+        inc.decode(q);
+        // always encode with subset of osdmaps canonical features
+        uint64_t f = inc.encode_features & features;
+        p->second.clear();
+        if (inc.fullmap.length()) {
+          // embedded full std::map?
+          OSDMap m;
+          m.decode(inc.fullmap);
+          inc.fullmap.clear();
+          m.encode(inc.fullmap, f | CEPH_FEATURE_RESERVED);
+        }
+        if (inc.crush.length()) {
+          // embedded crush std::map
+          CrushWrapper c;
+          auto p = inc.crush.cbegin();
+          c.decode(p);
+          inc.crush.clear();
+          c.encode(inc.crush, f);
+        }
+        inc.encode(p->second, f | CEPH_FEATURE_RESERVED);
       }
       for (auto p = maps.begin(); p != maps.end(); ++p) {
-	OSDMap m;
-	m.decode(p->second);
-	// always encode with subset of osdmaps canonical features
-	uint64_t f = m.get_encoding_features() & features;
-	p->second.clear();
-	m.encode(p->second, f | CEPH_FEATURE_RESERVED);
+        OSDMap m;
+        m.decode(p->second);
+        // always encode with subset of osdmaps canonical features
+        uint64_t f = m.get_encoding_features() & features;
+        p->second.clear();
+        m.encode(p->second, f | CEPH_FEATURE_RESERVED);
       }
     }
     encode(incremental_maps, payload);

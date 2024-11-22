@@ -20,6 +20,7 @@
 
 #include <atomic>
 #include <sstream>
+#include <fstream>
 #include <cstdio>
 #include <memory>
 #include <string_view>
@@ -31,6 +32,8 @@
 
 #include "include/rados/rados_types.hpp"
 #include "include/mempool.h"
+
+#include "rendezvous_hashing.hh"
 
 #include "msg/msg_types.h"
 #include "include/compat.h"
@@ -393,7 +396,9 @@ WRITE_CLASS_ENCODER(old_pg_t)
 
 // placement group id
 struct pg_t {
+  // pg所在的pool
   uint64_t m_pool;
+  // pg的序号
   uint32_t m_seed;
 
   pg_t() : m_pool(0), m_seed(0) {}
@@ -1441,6 +1446,12 @@ private:
   __u32 pg_num_target = 0;        ///< pg_num we should converge toward
   __u32 pgp_num_target = 0;       ///< pgp_num we should converge toward
 
+  // // for Rendezvous hashing
+  // int hash_func_num = 3;
+  // double power = 7.5;
+  // std::map<int, std::string> pg_idx_map;
+  // std::map<std::string, std::shared_ptr<rendezvousNode>> pg_nodes;
+
 public:
   std::map<std::string, std::string> properties;  ///< OBSOLETE
   std::string erasure_code_profile; ///< name of the erasure code profile in OSDMap
@@ -1542,6 +1553,8 @@ public:
     for (auto i : want) swant.insert(i);
     return stretch_set_can_peer(swant, osdmap, out);
   }
+
+  // uint32_t rendezvous_hash(const std::string &key);
 
   uint64_t target_max_bytes = 0;   ///< tiering: target max pool size
   uint64_t target_max_objects = 0; ///< tiering: target max pool size
@@ -1662,8 +1675,66 @@ public:
 
 private:
   std::vector<uint32_t> grade_table;
+  // Modified by Edgar
+  // pgid->weight
+  std::map<int, double> rendezvous_weight;
 
 public:
+  bool has_pool_rendezvous_weight() const {
+    // return rendezvous_weight.find(poolid) != rendezvous_weight.end();
+    return rendezvous_weight.size() > 0;
+  }
+  int compute_pool_rendezvous_weight(){
+    // const pg_pool_t *pi = this->get_pg_pool(poolid);
+    // if(rendezvous_weight.find(poolid) == rendezvous_weight.end()){
+    //   rendezvous_weight[poolid] = std::map<int, int>();
+    // }
+    auto pg_num = get_pg_num();
+
+    // std::map<int, int> pg_in_osd;
+    // std::map<int, std::vector<int>> pg_to_osds;
+    // for (unsigned ps = 0; ps < pg_num; ps++) {
+    //   // CRUSH.
+    //   pg_t pgid(ps, poolid);
+    //   int up_primary, acting_primary;
+    //   std::vector<int> up, acting;
+    //   pg_to_up_acting_osds(pgid, &up, &up_primary,
+    //                              &acting, &acting_primary);
+
+    //   pg_to_osds[ps] = up;
+    //   for (auto osd : up) {
+    //     pg_in_osd[osd]++;
+    //   }
+    // }
+
+    // // cal pg weight
+    // std::map<int, double> pg_to_avg;
+    // auto size = pi->get_size();
+    // std::cout << "pool size: " << size << std::endl;
+    // // Calculate the average pg num of the osd corresponding to each pg
+    // for (const auto &pair : pg_to_osds) {
+    //   int total_pg = 0;
+    //   for (auto osd : pair.second) {
+    //     total_pg += pg_in_osd[osd];
+    //   }
+    //   pg_to_avg[pair.first] = double(total_pg) / size;
+    // }
+
+    // int power = 3;
+    for (unsigned i = 0; i < pg_num; i++) {
+      rendezvous_weight[i] = 1.0;
+    }
+
+    return 1;
+  }
+
+  void show_pool_rendezvous_weight(){
+    for(const auto &pair : rendezvous_weight){
+      std::cout << "pgid: " << pair.first << " weight: " << pair.second << std::endl;
+    }
+  }
+
+
   uint32_t get_grade(unsigned i) const {
     if (grade_table.size() <= i)
       return 0;

@@ -24,6 +24,7 @@
  *   disks, disk groups, total # osds,
  *
  */
+#include <string>
 #include <vector>
 #include <list>
 #include <set>
@@ -344,6 +345,12 @@ struct PGTempMap {
   }
 };
 WRITE_CLASS_ENCODER(PGTempMap)
+
+// struct rendezvous_map{
+//   std::map<int, std::map<int, double>> rendezvous_weight;
+//   unsigned hash_func_num;
+
+// };
 
 /** OSDMap
  */
@@ -677,7 +684,95 @@ private:
 private:
   OSDMap(const OSDMap& other) = default;
   OSDMap& operator=(const OSDMap& other) = default;
+
+  // Modified by Edgar
+  // poolid -> <pgid, weight>
+  std::map<int, std::map<int, double>> rendezvous_weight;
 public:
+  bool has_pool_rendezvous_weight(int poolid) const{
+    return rendezvous_weight.find(poolid) != rendezvous_weight.end();
+  }
+
+  // void set_pool_rendezvous_weight(int poolid){
+  //   const pg_pool_t *pi = this->get_pg_pool(poolid);
+  //   if(rendezvous_weight.find(poolid) == rendezvous_weight.end()){
+  //     rendezvous_weight[poolid] = std::map<int, int>();
+  //   }
+  //   auto pg_num = pi->get_pg_num();
+  //   for(int actual_pgid = 0; actual_pgid < pg_num; actual_pgid++){
+  //     this->pg_to_up_acting_osds(actual_pgid, &up, &up_primary,
+  //                                &acting, &acting_primary);
+  //     rendezvous_weight[poolid][i] = 0;
+  //   }
+  // }
+
+  int compute_pool_rendezvous_weight(int poolid, unsigned pg_num, unsigned size){
+    // const pg_pool_t *pi = this->get_pg_pool(poolid);
+    if(rendezvous_weight.find(poolid) == rendezvous_weight.end()){
+      rendezvous_weight[poolid] = std::map<int, double>();
+    }
+    // auto pg_num = pi->get_pg_num();
+
+    std::map<int, int> pg_in_osd;
+    std::map<int, std::vector<int>> pg_to_osds;
+    for (unsigned ps = 0; ps < pg_num; ps++) {
+      // CRUSH.
+      pg_t pgid(ps, poolid);
+      int up_primary, acting_primary;
+      std::vector<int> up, acting;
+      pg_to_up_acting_osds(pgid, &up, &up_primary,
+                                 &acting, &acting_primary);
+
+      pg_to_osds[ps] = up;
+      for (auto osd : up) {
+        pg_in_osd[osd]++;
+      }
+    }
+
+    // cal pg weight
+    std::map<int, double> pg_to_avg;
+    // auto size = pi->get_size();
+    // std::cout << "pool size: " << size << std::endl;
+    // Calculate the average pg num of the osd corresponding to each pg
+    for (const auto &pair : pg_to_osds) {
+      int total_pg = 0;
+      for (auto osd : pair.second) {
+        total_pg += pg_in_osd[osd];
+      }
+      pg_to_avg[pair.first] = double(total_pg) / size;
+    }
+
+    int power = 3;
+    for (const auto &pair : pg_to_avg) {
+      rendezvous_weight[poolid][pair.first] = pow(1 / pair.second, power);
+    }
+
+    return 1;
+  }
+
+  void get_rendzvous_pgs_weight(unsigned poolid, std::vector<unsigned> &pgs, std::map<unsigned, double> &weights){
+    if(rendezvous_weight.find(poolid) == rendezvous_weight.end()){
+      return;
+    }
+    for(unsigned i = 0; i < pgs.size(); i++){
+      if(rendezvous_weight[poolid].find(pgs[i]) != rendezvous_weight[poolid].end()){
+        weights[pgs[i]] = rendezvous_weight[poolid][pgs[i]];  
+      }
+    }
+  }
+
+  // void show_pool_rendezvous_weight(int poolid) const{
+  //   if(rendezvous_weight.find(poolid) == rendezvous_weight.end()){
+  //     std::cout << "poolid: " << poolid << " has no rendezvous weight" << std::endl;
+  //     return;
+  //   }else{
+  //     auto pool_weight = rendezvous_weight.at(poolid);
+  //     for(const auto &pair : pool_weight){
+  //       std::cout << "pgid: " << pair.first << " weight: " << pair.second << std::endl;
+  //     }
+  //   }
+    
+  // }
 
   /// return feature mask subset that is relevant to OSDMap encoding
   static uint64_t get_significant_features(uint64_t features) {
@@ -1384,6 +1479,15 @@ public:
       return &i->second;
     return NULL;
   }
+
+  // Modified by Edgar
+  pg_pool_t* get_nonconst_pg_pool(int64_t p) {
+    auto i = pools.find(p);
+    if (i != pools.end())
+      return &i->second;
+    return NULL;
+  }
+
   unsigned get_pg_size(pg_t pg) const {
     auto p = pools.find(pg.pool());
     ceph_assert(p != pools.end());

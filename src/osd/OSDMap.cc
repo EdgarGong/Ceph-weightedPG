@@ -3044,6 +3044,8 @@ void OSDMap::encode_classic(ceph::buffer::list& bl, uint64_t features) const
 void OSDMap::encode(ceph::buffer::list& bl, uint64_t features) const
 {
   using ceph::encode;
+  // std::cout << "start encode" << std::endl;
+  // dout(0) << "start encode " << dendl;
   if ((features & CEPH_FEATURE_OSDMAP_ENC) == 0) {
     encode_classic(bl, features);
     return;
@@ -3149,6 +3151,11 @@ void OSDMap::encode(ceph::buffer::list& bl, uint64_t features) const
       encode(last_up_change, bl);
       encode(last_in_change, bl);
     }
+
+    // std::cout << "encode rendezvous weight" << std::endl;
+    encode(rendezvous_weight, bl);
+    
+
     ENCODE_FINISH(bl); // client-usable data
   }
 
@@ -3385,6 +3392,8 @@ void OSDMap::decode_classic(ceph::buffer::list::const_iterator& p)
 void OSDMap::decode(ceph::buffer::list::const_iterator& bl)
 {
   using ceph::decode;
+  // std::cout << "start decode" << std::endl;
+  // ldout(cct, 10) << "start decode " << dendl;
   /**
    * Older encodings of the OSDMap had a single struct_v which
    * covered the whole encoding, and was prior to our modern
@@ -3483,8 +3492,15 @@ void OSDMap::decode(ceph::buffer::list::const_iterator& bl)
       decode(last_up_change, bl);
       decode(last_in_change, bl);
     }
+
+    // std::cout << "decode rendezvous weight" << std::endl;
+    decode(rendezvous_weight, bl);
+    
+
     DECODE_FINISH(bl); // client-usable data
   }
+
+  // std::cout << "client-usable data end decode" << std::endl;
 
   {
     DECODE_START(10, bl); // extended, osd-only data
@@ -3575,6 +3591,8 @@ void OSDMap::decode(ceph::buffer::list::const_iterator& bl)
     }
     DECODE_FINISH(bl); // osd-only data
   }
+
+  // std::cout << "osd-only data end decode" << std::endl;
 
   if (struct_v >= 8) {
     crc_front.substr_of(bl.get_bl(), start_offset, bl.get_off() - start_offset);

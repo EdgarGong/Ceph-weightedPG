@@ -29,6 +29,7 @@ set(osd_srcs
   Watch.cc
   Session.cc
   SnapMapper.cc
+  # rendezvous_hashing.cc
   osd_types.cc
   ECUtil.cc
   ExtentCache.cc

@@ -8029,7 +8029,7 @@ void OSD::handle_osd_map(MOSDMap *m)
 
   epoch_t first = m->get_first();
   epoch_t last = m->get_last();
-  dout(3) << "handle_osd_map epochs [" << first << "," << last << "], i have "
+  dout(0) << "handle_osd_map epochs [" << first << "," << last << "], i have "
 	  << superblock.newest_map
 	  << ", src has [" << m->oldest_map << "," << m->newest_map << "]"
 	  << dendl;

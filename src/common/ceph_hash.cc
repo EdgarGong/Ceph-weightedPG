@@ -94,6 +94,9 @@ unsigned ceph_str_hash_linux(const char *str, unsigned length)
 
 unsigned ceph_str_hash(int type, const char *s, unsigned len)
 {
+  // auto ret = std::hash<std::string> {} (std::string(s, len));
+  // std::cout << "ret: " << ret << std::endl;
+  // return ret;
 	switch (type) {
 	case CEPH_STR_HASH_LINUX:
 		return ceph_str_hash_linux(s, len);

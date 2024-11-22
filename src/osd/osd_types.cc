@@ -1763,6 +1763,25 @@ void pg_pool_t::remove_unmanaged_snap(snapid_t s, bool preoctopus_compat)
   }
 }
 
+// std::vector<int> select_k_numbers(int n, int k, unsigned seed) {
+//   std::vector<int> numbers(n);
+//   // 填充向量
+//   for (int i = 0; i < n; ++i) {
+//     numbers[i] = i;
+//   }
+
+//   // 使用当前时间作为随机数生成器的种子
+//   // unsigned seed =
+//   // std::chrono::system_clock::now().time_since_epoch().count();
+//   std::shuffle(numbers.begin(), numbers.end(),
+//                std::default_random_engine(seed));
+
+//   // 只保留前k个元素
+//   numbers.resize(k);
+
+//   return numbers;
+// }
+
 SnapContext pg_pool_t::get_snap_context() const
 {
   vector<snapid_t> s(snaps.size());
@@ -1771,6 +1790,60 @@ SnapContext pg_pool_t::get_snap_context() const
     s[i++] = p->first;
   return SnapContext(get_snap_seq(), s);
 }
+
+// uint32_t pg_pool_t::rendezvous_hash(const string &key)
+// {
+//   if(pg_nodes.empty()) {
+//     // init pg rendezvous node
+//     std::ifstream file("/root/pg_weight.csv");
+//     if (!file.is_open()) {
+//         std::cerr << "Could not open the file!" << std::endl;
+//         return 0;
+//     }
+
+//     std::string line;
+//     // Skip the header line (first line)
+//     std::getline(file, line);
+
+//     int pg_idx = 0;
+//     // Read each line of the CSV file
+//     while (std::getline(file, line)) {
+//         std::stringstream ss(line);
+//         std::string pg;
+//         std::string weightStr;
+//         double weight;
+
+//         // Get the PG (first column)
+//         std::getline(ss, pg, ',');
+
+//         // Get the Weight (second column)
+//         std::getline(ss, weightStr, ',');
+//         weight = std::stod(weightStr);  // Convert string to double
+
+//         // Store the data in the map
+//         pg_nodes[pg] = std::make_shared<rendezvousNode>(pg, weight);
+//         pg_idx_map[pg_idx] = pg;
+//         pg_idx++;
+//     }
+//   }
+  
+//   std::hash<std::string> hasher;
+//   auto hash = hasher(key);
+//   auto pg_idxs = select_k_numbers(pg_num, hash_func_num, hash);
+//   double max_score = std::numeric_limits<double>::lowest();
+//   uint32_t max_pg_id = 0;
+//   for (auto pg_idx : pg_idxs) {
+//     auto pg = pg_idx_map[pg_idx];
+//     auto responsible_node = pg_nodes[pg];
+//     double score = responsible_node->compute_weighted_score(key);
+//     if (score > max_score) {
+//       max_score = score;
+//       max_pg_id = pg_idx;
+//     }
+//   }
+
+//   return max_pg_id;
+// }
 
 uint32_t pg_pool_t::hash_key(const string& key, const string& ns) const
 {
