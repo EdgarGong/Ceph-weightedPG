@@ -22,6 +22,7 @@
 #include <locale>
 #include <sstream>
 
+
 #include "mon/OSDMonitor.h"
 #include "mon/Monitor.h"
 #include "mon/MDSMonitor.h"
@@ -7975,6 +7976,36 @@ int OSDMonitor::check_pg_num(int64_t pool,
   return 0;
 }
 
+int read_config(unsigned &hash_func_num, double &power) {
+  static const std::string config_file = "/tmp/rendezvous_config/rendezvous_config.txt";
+  std::ifstream file(config_file);
+  if (!file.is_open()) {
+    return -1;
+  }
+
+  std::map<std::string, std::string> config;
+  std::string line;
+  while (std::getline(file, line)) {
+    if (line.empty() || line[0] == '#') continue; // 跳过空行和注释
+    std::istringstream ss(line);
+    std::string key, value;
+    if (std::getline(ss, key, '=') && std::getline(ss, value)) {
+        // 去掉key前后的空格
+        key.erase(0, key.find_first_not_of(" \t"));
+        key.erase(key.find_last_not_of(" \t") + 1);
+        // 去掉value前后的空格
+        value.erase(0, value.find_first_not_of(" \t"));
+        value.erase(value.find_last_not_of(" \t") + 1);
+        config[key] = value;
+    }
+  }
+
+  // 访问配置项
+  hash_func_num = std::stoi(config["hash_func_num"]);
+  power = std::stod(config["power"]);
+  return 0;
+}
+
 /**
  * @param name The name of the new pool
  * @param crush_rule The crush rule to use. If <0, will use the system default
@@ -8232,13 +8263,21 @@ int OSDMonitor::prepare_new_pool(string& name,
 
   // Modified by Edgar
   int64_t pool_id = osdmap.get_pools().size() + 1;
-  // dout(0) << __func__ << "TODO:compute rendezvous weight for pool:" << pool_id << dendl;
-  // osdmap.compute_pool_rendezvous_weight(pool_id);
+  unsigned hash_func_num = 3;
+  double power = 3;
+  if(read_config(hash_func_num, power) < 0){
+    dout(0) << __func__ << "read config file failed" << dendl;
+  }else{
+    dout(0) << __func__ << "read config file success. " 
+    << "hash func num:" << hash_func_num 
+    << " power:" << power << dendl;
+  }
+  
   // 只针对用户创建的pool，跳过系统自带的pool
   if(pool_id >= 4 && !osdmap.has_pool_rendezvous_weight(pool_id)) {
     dout(0) << __func__ << "compute rendezvous weight for pool:" << pool_id
       << " pg num:" << pg_num << " size:" << size << dendl;
-    osdmap.compute_pool_rendezvous_weight(pool_id, pg_num, size);
+    osdmap.compute_pool_rendezvous_weight(pool_id, pg_num, size, hash_func_num, power);
   }
 
 

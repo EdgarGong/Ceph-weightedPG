@@ -3152,8 +3152,10 @@ void OSDMap::encode(ceph::buffer::list& bl, uint64_t features) const
       encode(last_in_change, bl);
     }
 
+    // Modified by Edgar
     // std::cout << "encode rendezvous weight" << std::endl;
     encode(rendezvous_weight, bl);
+    encode(_power, bl);
     
 
     ENCODE_FINISH(bl); // client-usable data
@@ -3493,9 +3495,10 @@ void OSDMap::decode(ceph::buffer::list::const_iterator& bl)
       decode(last_in_change, bl);
     }
 
+    // Modified by Edgar
     // std::cout << "decode rendezvous weight" << std::endl;
     decode(rendezvous_weight, bl);
-    
+    decode(_power, bl);
 
     DECODE_FINISH(bl); // client-usable data
   }

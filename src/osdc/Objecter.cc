@@ -1286,8 +1286,6 @@ void Objecter::handle_osd_map(MOSDMap *m)
             << m->get_last() << dendl;
           // std::cout << "handle_osd_map decoding full epoch" << std::endl;
           osdmap->decode(m->maps[m->get_last()]);
-          ldout(cct, 0) << "after handle_osd_map decoding full epoch "
-            << m->get_last() << dendl;
           prune_pg_mapping(osdmap->get_pools());
 
           _scan_requests(homeless_session, false, false, NULL,
@@ -2781,7 +2779,7 @@ void Objecter::_prune_snapc(
 }
 
 // select k nums from [0, n-1]
-std::vector<unsigned> select_k_pgs(int n, int k, unsigned seed) {
+std::vector<unsigned> select_k_pgs(unsigned n, unsigned k, unsigned seed) {
   std::vector<unsigned> numbers(n);
   // 填充向量
   for (unsigned i = 0; i < n; ++i) {

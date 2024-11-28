@@ -347,9 +347,12 @@ struct PGTempMap {
 WRITE_CLASS_ENCODER(PGTempMap)
 
 // struct rendezvous_map{
+//   // poolid -> <pgid, weight>
 //   std::map<int, std::map<int, double>> rendezvous_weight;
+//   // the hash func num for "the Power of Two Choices"
 //   unsigned hash_func_num;
-
+//   // the power for the weight calculation
+//   unsigned power;
 // };
 
 /** OSDMap
@@ -687,7 +690,9 @@ private:
 
   // Modified by Edgar
   // poolid -> <pgid, weight>
+  // poolid -> <-1, hash_func_num> : the hash func num for "the Power of Two Choices"
   std::map<int, std::map<int, double>> rendezvous_weight;
+  double _power;
 public:
   bool has_pool_rendezvous_weight(int poolid) const{
     return rendezvous_weight.find(poolid) != rendezvous_weight.end();
@@ -706,7 +711,8 @@ public:
   //   }
   // }
 
-  int compute_pool_rendezvous_weight(int poolid, unsigned pg_num, unsigned size){
+  int compute_pool_rendezvous_weight(int poolid, unsigned pg_num, 
+    unsigned size, unsigned hash_func_num, double power){
     // const pg_pool_t *pi = this->get_pg_pool(poolid);
     if(rendezvous_weight.find(poolid) == rendezvous_weight.end()){
       rendezvous_weight[poolid] = std::map<int, double>();
@@ -742,7 +748,8 @@ public:
       pg_to_avg[pair.first] = double(total_pg) / size;
     }
 
-    int power = 3;
+    rendezvous_weight[poolid][-1] = hash_func_num;
+    _power = power;
     for (const auto &pair : pg_to_avg) {
       rendezvous_weight[poolid][pair.first] = pow(1 / pair.second, power);
     }
@@ -750,13 +757,15 @@ public:
     return 1;
   }
 
-  void get_rendzvous_pgs_weight(unsigned poolid, std::vector<unsigned> &pgs, std::map<unsigned, double> &weights){
+  void get_rendzvous_pgs_weight(unsigned poolid, std::vector<unsigned> &pgs, std::map<unsigned, double> &weights) const{
     if(rendezvous_weight.find(poolid) == rendezvous_weight.end()){
       return;
     }
+
+    auto &all_pg_weights = rendezvous_weight.at(poolid);
     for(unsigned i = 0; i < pgs.size(); i++){
-      if(rendezvous_weight[poolid].find(pgs[i]) != rendezvous_weight[poolid].end()){
-        weights[pgs[i]] = rendezvous_weight[poolid][pgs[i]];  
+      if(all_pg_weights.find(pgs[i]) != all_pg_weights.end()){
+        weights[pgs[i]] = all_pg_weights.at(pgs[i]);  
       }
     }
   }
